@@ -395,6 +395,9 @@ async function run() {
       }
     });
 
+
+
+
     app.post("/asset_requests", async (req, res) => {
       const { assetId, quantity, userName, email, reason } = req.body;
 
@@ -473,6 +476,29 @@ app.put("/asset_requests/:id/approve", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to approve request" });
+  }
+});
+
+
+// Reject asset request
+app.put("/asset_requests/:id/reject", async (req, res) => {
+  const requestId = req.params.id;
+
+  try {
+    // Update request status to "rejected"
+    const result = await assetRequestCollection.updateOne(
+      { _id: new ObjectId(requestId) },
+      { $set: { status: "rejected" } }
+    );
+
+    if (result.modifiedCount > 0) {
+      res.json({ success: true, message: "Request rejected" });
+    } else {
+      res.status(404).json({ success: false, message: "Request not found" });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to reject request" });
   }
 });
 
