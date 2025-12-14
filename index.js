@@ -22,6 +22,7 @@ async function run() {
     const assetCollection = db.collection("asset_list");
     const assetRequestCollection = db.collection("asset_requests");
     const usersCollection = db.collection("users");
+    const employeeAffiliationsCollection = db.collection("employeeAffiliations");
 
     console.log("MongoDB connected!");
 
@@ -51,56 +52,6 @@ async function run() {
 
       const result = await usersCollection.insertOne(user);
       res.send(result);
-    });
-
-    app.patch("/requests/approve/:id", async (req, res) => {
-      const requestId = req.params.id;
-      const { hrEmail, employeeEmail, assetId } = req.body;
-
-      // 1️⃣ HR info
-      const hr = await usersCollection.findOne({ email: hrEmail });
-
-      // 2️⃣ Current employee count
-      const currentEmployees =
-        await employeeAffiliationsCollection.countDocuments({
-          companyEmail: hrEmail,
-        });
-
-      // 3️⃣ Package limit check
-      if (currentEmployees >= hr.packageLimit) {
-        return res.status(403).send({
-          message: "Employee limit reached. Please upgrade package.",
-        });
-      }
-
-      // 4️⃣ Approve request
-      await requestsCollection.updateOne(
-        { _id: new ObjectId(requestId) },
-        { $set: { status: "approved" } }
-      );
-
-      // 5️⃣ Auto employee affiliation (first time)
-      const alreadyAffiliated = await employeeAffiliationsCollection.findOne({
-        employeeEmail,
-        companyEmail: hrEmail,
-      });
-
-      if (!alreadyAffiliated) {
-        await employeeAffiliationsCollection.insertOne({
-          employeeEmail,
-          companyEmail: hrEmail,
-          companyName: hr.companyName,
-          joinedAt: new Date(),
-        });
-      }
-
-      // 6️⃣ Asset quantity reduce
-      await assetsCollection.updateOne(
-        { _id: new ObjectId(assetId) },
-        { $inc: { quantity: -1 } }
-      );
-
-      res.send({ success: true });
     });
 
     // Get role
@@ -201,34 +152,6 @@ async function run() {
     // =====================================================
     // EMPLOYEES
     // =====================================================
-    app.get("/employees", async (req, res) => {
-      const { company, page = 1, limit = 10, search = "" } = req.query;
-
-      if (!company)
-        return res.status(400).json({ message: "Company is required" });
-
-      const skip = (page - 1) * limit;
-      const regex = new RegExp(search, "i");
-
-      const query = {
-        role: "employee",
-        affiliations: {
-          $elemMatch: {
-            companyName: { $regex: `^${company}$`, $options: "i" },
-          },
-        },
-        $or: [{ name: regex }, { email: regex }],
-      };
-
-      const total = await usersCollection.countDocuments(query);
-      const employees = await usersCollection
-        .find(query)
-        .skip(Number(skip))
-        .limit(Number(limit))
-        .toArray();
-
-      res.json({ employees, total });
-    });
 
     // Add affiliation
     app.post("/affiliations/:id", async (req, res) => {
@@ -472,52 +395,82 @@ async function run() {
       const { hrEmail, employeeEmail, assetId } = req.body;
 
       try {
-        // 1️⃣ HR info
+        // 1️⃣ HR check
         const hr = await usersCollection.findOne({ email: hrEmail });
-        if (!hr) return res.status(404).json({ message: "HR not found" });
-
-        // 2️⃣ Current employee count in HR company
-        const currentEmployees = await usersCollection.countDocuments({
-          role: "employee",
-          affiliations: { $elemMatch: { companyName: hr.companyName } },
-        });
-
-        // 3️⃣ Package limit check
-        if (currentEmployees >= hr.packageLimit) {
+        if (!hr) {
           return res
-            .status(403)
-            .json({ message: "Employee limit reached. Upgrade package!" });
+            .status(404)
+            .json({ success: false, message: "HR not found" });
         }
 
-        // 4️⃣ Approve request
-        await assetRequestCollection.updateOne(
-          { _id: new ObjectId(requestId) },
-          { $set: { status: "approved" } }
+        // 2️⃣ Package limit check
+        const employeeCount =
+          await employeeAffiliationsCollection.countDocuments({
+            companyName: hr.companyName,
+            status: "active",
+          });
+
+        if (employeeCount >= hr.packageLimit) {
+          return res.status(403).json({
+            success: false,
+            message: "Employee limit reached. Please upgrade package.",
+          });
+        }
+
+        // 3️⃣ Request approve
+        const approveResult = await assetRequestCollection.updateOne(
+          { _id: new ObjectId(requestId), status: "pending" },
+          { $set: { status: "approved", approvedAt: new Date() } }
         );
 
-        // 5️⃣ Auto employee affiliation (first time)
+        if (approveResult.modifiedCount === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Request already approved or not found",
+          });
+        }
+
+        // 4️⃣ Employee check
         const employee = await usersCollection.findOne({
           email: employeeEmail,
         });
-        const alreadyAffiliated = employee.affiliations?.some(
-          (aff) => aff.companyName === hr.companyName
-        );
-
-        if (!alreadyAffiliated) {
-          await usersCollection.updateOne(
-            { email: employeeEmail },
-            {
-              $addToSet: {
-                affiliations: {
-                  companyName: hr.companyName,
-                  joinedAt: new Date(),
-                },
-              },
-            }
-          );
+        if (!employee) {
+          return res.status(404).json({
+            success: false,
+            message: "Employee not found",
+          });
         }
 
-        // 6️⃣ Reduce asset quantity
+        // 5️⃣ Auto affiliation
+        const exists = await employeeAffiliationsCollection.findOne({
+          employeeId: employee._id,
+          companyName: hr.companyName,
+        });
+
+        if (!exists) {
+          await employeeAffiliationsCollection.insertOne({
+            employeeId: employee._id,
+            employeeEmail,
+            companyName: hr.companyName,
+            hrEmail,
+            status: "active",
+            joinedAt: new Date(),
+          });
+        }
+
+        // 6️⃣ Asset quantity check
+        const asset = await assetCollection.findOne({
+          _id: new ObjectId(assetId),
+        });
+
+        if (!asset || asset.quantity < 1) {
+          return res.status(400).json({
+            success: false,
+            message: "Asset out of stock",
+          });
+        }
+
+        // 7️⃣ Reduce asset quantity
         await assetCollection.updateOne(
           { _id: new ObjectId(assetId) },
           { $inc: { quantity: -1 } }
@@ -525,8 +478,11 @@ async function run() {
 
         res.json({ success: true });
       } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Failed to approve request" });
+        console.error("APPROVE ERROR:", err);
+        res.status(500).json({
+          success: false,
+          message: "Failed to approve request",
+        });
       }
     });
 
@@ -602,9 +558,7 @@ async function run() {
       }
     });
 
-    // Verify Payment & Update HR Package (dummy DB)
-    let HR_DB = [];
-
+    // Verify Payment & Update HR Package
     app.get("/api/stripe/success", async (req, res) => {
       const { session_id, hrId, packageType } = req.query;
 
@@ -612,6 +566,16 @@ async function run() {
         const session = await stripe.checkout.sessions.retrieve(session_id);
 
         if (session.payment_status === "paid") {
+          await usersCollection.updateOne(
+            { _id: new ObjectId(hrId) },
+            {
+              $set: {
+                package: packageType,
+                packageLimit,
+              },
+            }
+          );
+
           // Update package in dummy DB
           let packageLimit = 5;
           if (packageType === "Standard") packageLimit = 20;
