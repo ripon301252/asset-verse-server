@@ -22,7 +22,9 @@ async function run() {
     const assetCollection = db.collection("asset_list");
     const assetRequestCollection = db.collection("asset_requests");
     const usersCollection = db.collection("users");
-    const employeeAffiliationsCollection = db.collection("employeeAffiliations");
+    const employeeAffiliationsCollection = db.collection(
+      "employeeAffiliations"
+    );
 
     console.log("MongoDB connected!");
 
@@ -152,6 +154,72 @@ async function run() {
     // =====================================================
     // EMPLOYEES
     // =====================================================
+
+    // =====================================================
+    // HR EMPLOYEE LIST
+    // =====================================================
+    app.get("/hr/employees", async (req, res) => {
+      const { page = 1, limit = 10, search = "" } = req.query;
+      const hrEmail = req.headers.hremail; // frontend থেকে পাঠানো HR email
+
+      if (!hrEmail)
+        return res.status(400).json({ message: "HR email required" });
+
+      try {
+        // 1️⃣ HR এর company বের করা
+        const hr = await usersCollection.findOne({
+          email: hrEmail,
+          role: "hr",
+        });
+        if (!hr) return res.status(404).json({ message: "HR not found" });
+
+        const companyName = hr.companyName;
+
+        // 2️⃣ Employee affiliations query
+        const query = { companyName, status: "active" };
+        if (search) {
+          query.employeeEmail = { $regex: search, $options: "i" };
+        }
+
+        const total = await employeeAffiliationsCollection.countDocuments(
+          query
+        );
+
+        const affiliations = await employeeAffiliationsCollection
+          .find(query)
+          .skip((page - 1) * limit)
+          .limit(Number(limit))
+          .toArray();
+
+        // 3️⃣ User info join
+        const employeeIds = affiliations.map((a) => new ObjectId(a.employeeId));
+        const employees = await usersCollection
+          .find({ _id: { $in: employeeIds } })
+          .project({ name: 1, email: 1, photoURL: 1 })
+          .toArray();
+
+        // Attach affiliationId and joinedAt for frontend
+        const finalEmployees = affiliations.map((aff) => {
+          const user = employees.find(
+            (u) => u._id.toString() === aff.employeeId.toString()
+          );
+          return {
+            affiliationId: aff._id,
+            employeeId: aff.employeeId,
+            name: user?.name || "Unknown",
+            email: aff.employeeEmail,
+            photoURL: user?.photoURL || "",
+            status: aff.status,
+            joinedAt: aff.joinedAt,
+          };
+        });
+
+        res.json({ employees: finalEmployees, total });
+      } catch (err) {
+        console.error("HR EMPLOYEE LIST ERROR:", err);
+        res.status(500).json({ message: "Failed to fetch employees" });
+      }
+    });
 
     // Add affiliation
     app.post("/affiliations/:id", async (req, res) => {
@@ -392,7 +460,7 @@ async function run() {
     // Approve asset request
     app.put("/asset_requests/:id/approve", async (req, res) => {
       const requestId = req.params.id;
-      const { hrEmail, employeeEmail, assetId } = req.body;
+      const { hrEmail, employeeEmail, assetId, quantityNeeded } = req.body;
 
       try {
         // 1️⃣ HR check
@@ -473,7 +541,7 @@ async function run() {
         // 7️⃣ Reduce asset quantity
         await assetCollection.updateOne(
           { _id: new ObjectId(assetId) },
-          { $inc: { quantity: -1 } }
+          { $inc: { quantity: -quantityNeeded } }
         );
 
         res.json({ success: true });
