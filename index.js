@@ -278,6 +278,45 @@ async function run() {
       }
     });
 
+    // Return asset
+    app.put("/asset_requests/:id/return", async (req, res) => {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id))
+        return res.status(400).json({ message: "Invalid request ID" });
+
+      try {
+        // 1️⃣ Update request status
+        const result = await assetRequestCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "returned" } }
+        );
+
+        if (result.modifiedCount === 0)
+          return res
+            .status(404)
+            .json({ success: false, message: "Request not found" });
+
+        // 2️⃣ Optionally increase asset quantity back
+        const request = await assetRequestCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (request.assetId) {
+          await assetCollection.updateOne(
+            { _id: new ObjectId(request.assetId) },
+            { $inc: { quantity: 1 } }
+          );
+        }
+
+        res.json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (err) {
+        console.error(err);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to return asset" });
+      }
+    });
+
     // Get single asset by id
     app.get("/assets/:id", async (req, res) => {
       const { id } = req.params;
