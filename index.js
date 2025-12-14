@@ -22,7 +22,6 @@ async function run() {
     const assetCollection = db.collection("asset_list");
     const assetRequestCollection = db.collection("asset_requests");
     const usersCollection = db.collection("users");
-    
 
     console.log("MongoDB connected!");
 
@@ -133,9 +132,14 @@ async function run() {
         const result = await usersCollection.updateOne(
           { _id: new ObjectId(employeeId) },
           {
-            $pull: { affiliations: { companyName: companyName.toLowerCase() } },
+            $pull: {
+              affiliations: {
+                companyName: { $regex: `^${companyName}$`, $options: "i" },
+              },
+            },
           }
         );
+
         res.json({ success: result.modifiedCount > 0 });
       } catch (err) {
         console.error(err);
@@ -208,7 +212,11 @@ async function run() {
 
       const query = {
         role: "employee",
-        affiliations: { $elemMatch: { companyName: company.toLowerCase() } },
+        affiliations: {
+          $elemMatch: {
+            companyName: { $regex: `^${company}$`, $options: "i" },
+          },
+        },
         $or: [{ name: regex }, { email: regex }],
       };
 
@@ -395,9 +403,6 @@ async function run() {
       }
     });
 
-
-
-
     app.post("/asset_requests", async (req, res) => {
       const { assetId, quantity, userName, email, reason } = req.body;
 
@@ -422,86 +427,95 @@ async function run() {
       res.status(201).json(result);
     });
 
-   // Approve asset request
-app.put("/asset_requests/:id/approve", async (req, res) => {
-  const requestId = req.params.id;
-  const { hrEmail, employeeEmail, assetId } = req.body;
+    // Approve asset request
+    app.put("/asset_requests/:id/approve", async (req, res) => {
+      const requestId = req.params.id;
+      const { hrEmail, employeeEmail, assetId } = req.body;
 
-  try {
-    // 1️⃣ HR info
-    const hr = await usersCollection.findOne({ email: hrEmail });
-    if (!hr) return res.status(404).json({ message: "HR not found" });
+      try {
+        // 1️⃣ HR info
+        const hr = await usersCollection.findOne({ email: hrEmail });
+        if (!hr) return res.status(404).json({ message: "HR not found" });
 
-    // 2️⃣ Current employee count in HR company
-    const currentEmployees = await usersCollection.countDocuments({
-      role: "employee",
-      affiliations: { $elemMatch: { companyName: hr.companyName } },
+        // 2️⃣ Current employee count in HR company
+        const currentEmployees = await usersCollection.countDocuments({
+          role: "employee",
+          affiliations: { $elemMatch: { companyName: hr.companyName } },
+        });
+
+        // 3️⃣ Package limit check
+        if (currentEmployees >= hr.packageLimit) {
+          return res
+            .status(403)
+            .json({ message: "Employee limit reached. Upgrade package!" });
+        }
+
+        // 4️⃣ Approve request
+        await assetRequestCollection.updateOne(
+          { _id: new ObjectId(requestId) },
+          { $set: { status: "approved" } }
+        );
+
+        // 5️⃣ Auto employee affiliation (first time)
+        const employee = await usersCollection.findOne({
+          email: employeeEmail,
+        });
+        const alreadyAffiliated = employee.affiliations?.some(
+          (aff) => aff.companyName === hr.companyName
+        );
+
+        if (!alreadyAffiliated) {
+          await usersCollection.updateOne(
+            { email: employeeEmail },
+            {
+              $addToSet: {
+                affiliations: {
+                  companyName: hr.companyName,
+                  joinedAt: new Date(),
+                },
+              },
+            }
+          );
+        }
+
+        // 6️⃣ Reduce asset quantity
+        await assetCollection.updateOne(
+          { _id: new ObjectId(assetId) },
+          { $inc: { quantity: -1 } }
+        );
+
+        res.json({ success: true });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to approve request" });
+      }
     });
 
-    // 3️⃣ Package limit check
-    if (currentEmployees >= hr.packageLimit) {
-      return res.status(403).json({ message: "Employee limit reached. Upgrade package!" });
-    }
+    // Reject asset request
+    app.put("/asset_requests/:id/reject", async (req, res) => {
+      const requestId = req.params.id;
 
-    // 4️⃣ Approve request
-    await assetRequestCollection.updateOne(
-      { _id: new ObjectId(requestId) },
-      { $set: { status: "approved" } }
-    );
+      try {
+        // Update request status to "rejected"
+        const result = await assetRequestCollection.updateOne(
+          { _id: new ObjectId(requestId) },
+          { $set: { status: "rejected" } }
+        );
 
-    // 5️⃣ Auto employee affiliation (first time)
-    const employee = await usersCollection.findOne({ email: employeeEmail });
-    const alreadyAffiliated = employee.affiliations?.some(
-      (aff) => aff.companyName === hr.companyName
-    );
-
-    if (!alreadyAffiliated) {
-      await usersCollection.updateOne(
-        { email: employeeEmail },
-        {
-          $addToSet: {
-            affiliations: { companyName: hr.companyName, joinedAt: new Date() },
-          },
+        if (result.modifiedCount > 0) {
+          res.json({ success: true, message: "Request rejected" });
+        } else {
+          res
+            .status(404)
+            .json({ success: false, message: "Request not found" });
         }
-      );
-    }
-
-    // 6️⃣ Reduce asset quantity
-    await assetCollection.updateOne(
-      { _id: new ObjectId(assetId) },
-      { $inc: { quantity: -1 } }
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to approve request" });
-  }
-});
-
-
-// Reject asset request
-app.put("/asset_requests/:id/reject", async (req, res) => {
-  const requestId = req.params.id;
-
-  try {
-    // Update request status to "rejected"
-    const result = await assetRequestCollection.updateOne(
-      { _id: new ObjectId(requestId) },
-      { $set: { status: "rejected" } }
-    );
-
-    if (result.modifiedCount > 0) {
-      res.json({ success: true, message: "Request rejected" });
-    } else {
-      res.status(404).json({ success: false, message: "Request not found" });
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Failed to reject request" });
-  }
-});
-
+      } catch (err) {
+        console.error(err);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to reject request" });
+      }
+    });
 
     // DELETE asset request
     app.delete("/asset_requests/:id", async (req, res) => {
