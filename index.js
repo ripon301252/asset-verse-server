@@ -18,6 +18,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
+
     const db = client.db("asset_verse_db");
     const assetCollection = db.collection("asset_list");
     const assetRequestCollection = db.collection("asset_requests");
@@ -70,9 +71,36 @@ async function run() {
     });
 
     // Get all users
+    // app.get("/users", async (req, res) => {
+    //   const users = await usersCollection.find().toArray();
+    //   res.json(users);
+    // });
+
     app.get("/users", async (req, res) => {
-      const users = await usersCollection.find().toArray();
-      res.json(users);
+      const { page = 1, limit = 10, search = "" } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const query = {};
+      if (search) query.name = { $regex: search, $options: "i" };
+
+      try {
+        const total = await usersCollection.countDocuments(query);
+        const users = await usersCollection
+          .find(query)
+          .skip(skip)
+          .limit(Number(limit))
+          .toArray();
+
+        res.json({
+          users,
+          total,
+          page: Number(page),
+          totalPages: Math.ceil(total / Number(limit)),
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch users" });
+      }
     });
 
     // app.delete("/affiliations/:employeeId", async (req, res) => {
@@ -100,40 +128,39 @@ async function run() {
     //   }
     // });
 
-
-
-
     // GET single user
-    
+
     app.delete("/affiliations/:affiliationId", async (req, res) => {
-  const { affiliationId } = req.params;
-  const hrEmail = req.headers.hremail;
+      const { affiliationId } = req.params;
+      const hrEmail = req.headers.hremail;
 
-  if (!hrEmail) return res.status(400).json({ message: "HR email required" });
+      if (!hrEmail)
+        return res.status(400).json({ message: "HR email required" });
 
-  // HR এর company বের করা
-  const hr = await usersCollection.findOne({ email: hrEmail, role: "hr" });
-  if (!hr) return res.status(404).json({ message: "HR not found" });
+      // HR এর company বের করা
+      const hr = await usersCollection.findOne({ email: hrEmail, role: "hr" });
+      if (!hr) return res.status(404).json({ message: "HR not found" });
 
-  try {
-    const result = await employeeAffiliationsCollection.deleteOne({
-      _id: new ObjectId(affiliationId),
-      companyName: hr.companyName
+      try {
+        const result = await employeeAffiliationsCollection.deleteOne({
+          _id: new ObjectId(affiliationId),
+          companyName: hr.companyName,
+        });
+
+        if (result.deletedCount > 0) {
+          res.json({ success: true });
+        } else {
+          res.json({
+            success: false,
+            message: "Employee affiliation not found",
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to remove employee" });
+      }
     });
 
-    if (result.deletedCount > 0) {
-      res.json({ success: true });
-    } else {
-      res.json({ success: false, message: "Employee affiliation not found" });
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to remove employee" });
-  }
-});
-
-    
-    
     app.get("/users/:id", async (req, res) => {
       const id = req.params.id;
       if (!ObjectId.isValid(id)) {
@@ -277,13 +304,36 @@ async function run() {
     // =====================================================
     // ASSETS
     // =====================================================
+    // app.get("/assets", async (req, res) => {
+    //   const { page = 1, limit = 10, search = "", type } = req.query;
+
+    //   const skip = (page - 1) * limit;
+
+    //   const query = {};
+
+    //   if (search) query.name = { $regex: search, $options: "i" };
+    //   if (type) query.type = type;
+
+    //   try {
+    //     const total = await assetCollection.countDocuments(query);
+    //     const assets = await assetCollection
+    //       .find(query)
+    //       .skip(Number(skip))
+    //       .limit(Number(limit))
+    //       .toArray();
+
+    //     res.json({ assets, total });
+    //   } catch (err) {
+    //     console.error(err);
+    //     res.status(500).json({ message: "Failed to fetch assets" });
+    //   }
+    // });
+
     app.get("/assets", async (req, res) => {
       const { page = 1, limit = 10, search = "", type } = req.query;
-
-      const skip = (page - 1) * limit;
+      const skip = (Number(page) - 1) * Number(limit);
 
       const query = {};
-
       if (search) query.name = { $regex: search, $options: "i" };
       if (type) query.type = type;
 
@@ -291,11 +341,16 @@ async function run() {
         const total = await assetCollection.countDocuments(query);
         const assets = await assetCollection
           .find(query)
-          .skip(Number(skip))
+          .skip(skip)
           .limit(Number(limit))
           .toArray();
 
-        res.json({ assets, total });
+        res.json({
+          assets,
+          total,
+          page: Number(page),
+          totalPages: Math.ceil(total / Number(limit)),
+        });
       } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Failed to fetch assets" });
@@ -445,21 +500,49 @@ async function run() {
     // =====================================================
     // ASSET REQUESTS
     // =====================================================
+    // app.get("/asset_requests", async (req, res) => {
+    //   const { email, page = 1, limit = 10 } = req.query;
+    //   const query = email ? { email } : {};
+    //   const skip = (page - 1) * limit;
+
+    //   try {
+    //     const total = await assetRequestCollection.countDocuments(query);
+    //     const requests = await assetRequestCollection
+    //       .find(query)
+    //       .sort({ createdAt: -1 })
+    //       .skip(Number(skip))
+    //       .limit(Number(limit))
+    //       .toArray();
+
+    //     res.json({ requests, total });
+    //   } catch (err) {
+    //     console.error(err);
+    //     res.status(500).json({ message: "Failed to fetch asset requests" });
+    //   }
+    // });
+
     app.get("/asset_requests", async (req, res) => {
       const { email, page = 1, limit = 10 } = req.query;
       const query = email ? { email } : {};
-      const skip = (page - 1) * limit;
+      const pageNum = Number(page);
+      const limitNum = Number(limit);
+      const skip = (pageNum - 1) * limitNum;
 
       try {
         const total = await assetRequestCollection.countDocuments(query);
         const requests = await assetRequestCollection
           .find(query)
           .sort({ createdAt: -1 })
-          .skip(Number(skip))
-          .limit(Number(limit))
+          .skip(skip)
+          .limit(limitNum)
           .toArray();
 
-        res.json({ requests, total });
+        res.json({
+          requests,
+          total,
+          page: pageNum,
+          totalPages: Math.ceil(total / limitNum),
+        });
       } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Failed to fetch asset requests" });
@@ -494,7 +577,7 @@ async function run() {
     app.put("/asset_requests/:id/approve", async (req, res) => {
       const requestId = req.params.id;
       const { hrEmail, employeeEmail, assetId, quantityNeeded } = req.body;
-
+      // const quantityNeededNumber = Number(quantityNeeded)
       try {
         // 1️⃣ HR check
         const hr = await usersCollection.findOne({ email: hrEmail });
@@ -512,7 +595,7 @@ async function run() {
           });
 
         if (employeeCount >= hr.packageLimit) {
-          return res.status(403).json({
+          return res.status(405).json({
             success: false,
             message: "Employee limit reached. Please upgrade package.",
           });
@@ -524,12 +607,13 @@ async function run() {
           { $set: { status: "approved", approvedAt: new Date() } }
         );
 
-        if (approveResult.modifiedCount === 0) {
-          return res.status(400).json({
-            success: false,
-            message: "Request already approved or not found",
-          });
-        }
+        // if (approveResult.modifiedCount === 0) {
+        //   return res.status(400).json({
+        //     success: false,
+        //     message: "Request already approved or not found",
+        //   });
+        // }
+        console.log(approveResult);
 
         // 4️⃣ Employee check
         const employee = await usersCollection.findOne({
@@ -573,7 +657,7 @@ async function run() {
 
         // 7️⃣ Reduce asset quantity
         await assetCollection.updateOne(
-          { _id: new ObjectId(assetId) },
+          { assetId: assetId, email: employeeEmail },
           { $inc: { quantity: -quantityNeeded } }
         );
 
@@ -631,178 +715,131 @@ async function run() {
     });
 
     //  strip Create Checkout Session
+    // app.post("/api/stripe/create-checkout-session", async (req, res) => {
+    //   try {
+    //     const { hrEmail, packageType, amount } = req.body;
+    //     console.log(hrEmail);
+    //     const session = await stripe.checkout.sessions.create({
+    //       payment_method_types: ["card"],
+    //       line_items: [
+    //         {
+    //           price_data: {
+    //             currency: "usd",
+    //             product_data: { name: `AssetVerse ${packageType} Package` },
+    //             unit_amount: amount * 100,
+    //           },
+    //           quantity: 1,
+    //         },
+    //       ],
+    //       mode: "payment",
+    //       success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrEmail=${hrEmail}&packageType=${packageType}`,
+    //       cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
+    //     });
+
+    //     res.json({ url: session.url });
+    //   } catch (err) {
+    //     console.log(err);
+    //     res.status(500).json({ error: "Stripe session creation failed" });
+    //   }
+    // });
+
     app.post("/api/stripe/create-checkout-session", async (req, res) => {
       try {
-        const { hrEmail, packageType, amount } = req.body;
-        console.log(hrEmail)
+        const { hrEmail, packageId } = req.body;
+
+        const selectedPackage = await db
+          .collection("packages")
+          .findOne({ _id: new ObjectId(packageId) });
+
+        if (!selectedPackage) {
+          return res.status(404).json({ message: "Package not found" });
+        }
+
+        // Free package
+        if (selectedPackage.price === 0) {
+          await db.collection("users").updateOne(
+            { email: hrEmail },
+            {
+              $set: {
+                packageName: selectedPackage.name,
+                packageLimit: selectedPackage.employeeLimit,
+              },
+            }
+          );
+
+          return res.json({ free: true });
+        }
+
         const session = await stripe.checkout.sessions.create({
           payment_method_types: ["card"],
           line_items: [
             {
               price_data: {
                 currency: "usd",
-                product_data: { name: `AssetVerse ${packageType} Package` },
-                unit_amount: amount * 100,
+                product_data: {
+                  name: `AssetVerse ${selectedPackage.name} Package`,
+                },
+                unit_amount: selectedPackage.price * 100,
               },
               quantity: 1,
             },
           ],
           mode: "payment",
-          success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrEmail=${hrEmail}&packageType=${packageType}`,
+          success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrEmail=${hrEmail}&packageId=${packageId}`,
           cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
         });
 
         res.json({ url: session.url });
       } catch (err) {
-        console.log(err);
-        res.status(500).json({ error: "Stripe session creation failed" });
+        console.error(err);
+        res.status(500).json({ message: "Stripe error" });
       }
     });
 
-
-    
-// ✅ Create Stripe Checkout Session
-// app.post("/api/stripe/create-checkout-session", async (req, res) => {
-//   const { hrId, packageType, amount } = req.body;
-
-//   if (!hrId || !packageType || !amount)
-//     return res.status(400).json({ error: "Missing parameters" });
-
-//   try {
-//     const session = await stripe.checkout.sessions.create({
-//       payment_method_types: ["card"],
-//       line_items: [
-//         {
-//           price_data: {
-//             currency: "usd",
-//             product_data: { name: `AssetVerse ${packageType} Package` },
-//             unit_amount: amount * 100, // cents
-//           },
-//           quantity: 1,
-//         },
-//       ],
-//       mode: "payment",
-//       success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id=${session.id}&hrId=${hrId}&packageType=${packageType}`,
-//       cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
-//     });
-
-//     res.json({ url: session.url });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ error: "Stripe session creation failed" });
-//   }
-// });
-
- 
-
-// Verify Payment & Update HR Package
-app.get("/api/stripe/success", async (req, res) => {
-  const { session_id, hrEmail, packageType } = req.query;
-
-  if (!session_id || !hrEmail || !packageType) {
-    return res.status(400).json({ error: "Missing query parameters" });
-  }
-
-  try {
-    const session = await stripe.checkout.sessions.retrieve(session_id);
-
-    if (session.payment_status !== "paid") {
-      return res.status(400).json({ success: false, message: "Payment not completed" });
-    }
-
-    // Set package limits
-    let packageLimit = 5; // default
-    if (packageType === "Standard") packageLimit = 20;
-    if (packageType === "Premium") packageLimit = 50;
-
-    // Update HR in DB
-    await usersCollection.updateOne(
-      { email: hrEmail},
-      {
-        $set: {
-          package: packageType,
-          packageLimit: packageLimit,
-        },
-      }
-    );
-
-    return res.json({ success: true, packageType, packageLimit });
-  } catch (err) {
-    console.error("Stripe success verification error:", err);
-    res.status(500).json({ error: "Error verifying payment." });
-  }
-});
-
-
-// ✅ Verify payment & update HR package
-// app.get("/api/stripe/success", async (req, res) => {
-//   const { session_id, hrId, packageType } = req.query;
-
-//   if (!session_id || !hrId || !packageType) {
-//     return res.status(400).json({ error: "Missing query parameters" });
-//   }
-
-//   try {
-//     const session = await stripe.checkout.sessions.retrieve(session_id);
-
-//     if (session.payment_status !== "paid") {
-//       return res.status(400).json({ success: false, message: "Payment not completed" });
-//     }
-
-//     // Set package limits
-//     let packageLimit = 5;
-//     if (packageType === "Standard") packageLimit = 20;
-//     if (packageType === "Premium") packageLimit = 50;
-
-//     // Update HR in DB
-//     await usersCollection.updateOne(
-//       { _id: new ObjectId(hrId) },
-//       { $set: { package: packageType, packageLimit } }
-//     );
-
-//     res.json({ success: true, packageType, packageLimit });
-//   } catch (err) {
-//     console.error("Stripe success verification error:", err);
-//     res.status(500).json({ error: "Error verifying payment." });
-//   }
-// });
-
-
-    
-
     app.get("/api/stripe/success", async (req, res) => {
-  const { session_id, hrId, packageType } = req.query;
+      const { session_id, packageId, hrEmail } = req.query;
 
-  try {
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+      try {
+        const session = await stripe.checkout.sessions.retrieve(session_id);
 
-    if (session.payment_status === "paid") {
-
-      // ⭐ packageLimit ঠিকমতো define করা
-      let packageLimit = 5;
-      if (packageType === "Standard") packageLimit = 20;
-      if (packageType === "Premium") packageLimit = 50;
-
-      await usersCollection.updateOne(
-        { _id: new ObjectId(hrId) },
-        {
-          $set: {
-            package: packageType,
-            packageLimit: packageLimit, // ✅ এখন ঠিক আছে
-          },
+        if (session.payment_status !== "paid") {
+          return res.json({ success: false });
         }
-      );
 
-      return res.json({ success: true, packageType, packageLimit });
-    }
+        const pkg = await db.collection("packages").findOne({
+          _id: new ObjectId(packageId),
+        });
 
-    res.json({ success: false });
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ error: "Error verifying payment." });
-  }
-});
+        await usersCollection.updateOne(
+          { email: hrEmail },
+          {
+            $set: {
+              packageName: pkg.name,
+              packageLimit: pkg.employeeLimit,
+            },
+          }
+        );
 
+        res.json({ success: true });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Payment verification failed" });
+      }
+    });
+
+    // ==========================
+    // GET all packages
+    // ==========================
+    app.get("/api/packages", async (req, res) => {
+      try {
+        const db = client.db("asset_verse_db");
+        const packages = await db.collection("packages").find({}).toArray();
+        res.json(packages);
+      } catch (err) {
+        console.error("Failed to fetch packages:", err);
+        res.status(500).json({ message: "Failed to fetch packages" });
+      }
+    });
 
     // Mongo ping
     await client.db("admin").command({ ping: 1 });
