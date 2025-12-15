@@ -75,32 +75,65 @@ async function run() {
       res.json(users);
     });
 
-    app.delete("/affiliations/:employeeId", async (req, res) => {
-      const { employeeId } = req.params;
-      const { companyName } = req.body; // client থেকে পাঠাতে হবে
-      if (!companyName)
-        return res.status(400).json({ message: "Company required" });
+    // app.delete("/affiliations/:employeeId", async (req, res) => {
+    //   const { employeeId } = req.params;
+    //   const { companyName } = req.body; // client থেকে পাঠাতে হবে
+    //   if (!companyName)
+    //     return res.status(400).json({ message: "Company required" });
 
-      try {
-        const result = await usersCollection.updateOne(
-          { _id: new ObjectId(employeeId) },
-          {
-            $pull: {
-              affiliations: {
-                companyName: { $regex: `^${companyName}$`, $options: "i" },
-              },
-            },
-          }
-        );
+    //   try {
+    //     const result = await usersCollection.updateOne(
+    //       { _id: new ObjectId(employeeId) },
+    //       {
+    //         $pull: {
+    //           affiliations: {
+    //             companyName: { $regex: `^${companyName}$`, $options: "i" },
+    //           },
+    //         },
+    //       }
+    //     );
 
-        res.json({ success: result.modifiedCount > 0 });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Failed to remove affiliation" });
-      }
-    });
+    //     res.json({ success: result.modifiedCount > 0 });
+    //   } catch (err) {
+    //     console.error(err);
+    //     res.status(500).json({ message: "Failed to remove affiliation" });
+    //   }
+    // });
+
+
+
 
     // GET single user
+    
+    app.delete("/affiliations/:affiliationId", async (req, res) => {
+  const { affiliationId } = req.params;
+  const hrEmail = req.headers.hremail;
+
+  if (!hrEmail) return res.status(400).json({ message: "HR email required" });
+
+  // HR এর company বের করা
+  const hr = await usersCollection.findOne({ email: hrEmail, role: "hr" });
+  if (!hr) return res.status(404).json({ message: "HR not found" });
+
+  try {
+    const result = await employeeAffiliationsCollection.deleteOne({
+      _id: new ObjectId(affiliationId),
+      companyName: hr.companyName
+    });
+
+    if (result.deletedCount > 0) {
+      res.json({ success: true });
+    } else {
+      res.json({ success: false, message: "Employee affiliation not found" });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to remove employee" });
+  }
+});
+
+    
+    
     app.get("/users/:id", async (req, res) => {
       const id = req.params.id;
       if (!ObjectId.isValid(id)) {
@@ -600,8 +633,8 @@ async function run() {
     //  strip Create Checkout Session
     app.post("/api/stripe/create-checkout-session", async (req, res) => {
       try {
-        const { hrId, packageType, amount } = req.body;
-
+        const { hrEmail, packageType, amount } = req.body;
+        console.log(hrEmail)
         const session = await stripe.checkout.sessions.create({
           payment_method_types: ["card"],
           line_items: [
@@ -615,7 +648,7 @@ async function run() {
             },
           ],
           mode: "payment",
-          success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrId=${hrId}&packageType=${packageType}`,
+          success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrEmail=${hrEmail}&packageType=${packageType}`,
           cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
         });
 
@@ -626,47 +659,150 @@ async function run() {
       }
     });
 
-    // Verify Payment & Update HR Package
-    app.get("/api/stripe/success", async (req, res) => {
-      const { session_id, hrId, packageType } = req.query;
 
-      try {
-        const session = await stripe.checkout.sessions.retrieve(session_id);
+    
+// ✅ Create Stripe Checkout Session
+// app.post("/api/stripe/create-checkout-session", async (req, res) => {
+//   const { hrId, packageType, amount } = req.body;
 
-        if (session.payment_status === "paid") {
-          await usersCollection.updateOne(
-            { _id: new ObjectId(hrId) },
-            {
-              $set: {
-                package: packageType,
-                packageLimit,
-              },
-            }
-          );
+//   if (!hrId || !packageType || !amount)
+//     return res.status(400).json({ error: "Missing parameters" });
 
-          // Update package in dummy DB
-          let packageLimit = 5;
-          if (packageType === "Standard") packageLimit = 20;
-          if (packageType === "Premium") packageLimit = 50;
+//   try {
+//     const session = await stripe.checkout.sessions.create({
+//       payment_method_types: ["card"],
+//       line_items: [
+//         {
+//           price_data: {
+//             currency: "usd",
+//             product_data: { name: `AssetVerse ${packageType} Package` },
+//             unit_amount: amount * 100, // cents
+//           },
+//           quantity: 1,
+//         },
+//       ],
+//       mode: "payment",
+//       success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id=${session.id}&hrId=${hrId}&packageType=${packageType}`,
+//       cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
+//     });
 
-          // Update HR DB
-          let hr = HR_DB.find((h) => h.id === hrId);
-          if (hr) {
-            hr.packageType = packageType;
-            hr.packageLimit = packageLimit;
-          } else {
-            HR_DB.push({ id: hrId, packageType, packageLimit });
-          }
+//     res.json({ url: session.url });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ error: "Stripe session creation failed" });
+//   }
+// });
 
-          return res.json({ success: true, packageType, packageLimit });
-        }
+ 
 
-        res.json({ success: false });
-      } catch (err) {
-        console.log(err);
-        res.status(500).json({ error: "Error verifying payment." });
+// Verify Payment & Update HR Package
+app.get("/api/stripe/success", async (req, res) => {
+  const { session_id, hrEmail, packageType } = req.query;
+
+  if (!session_id || !hrEmail || !packageType) {
+    return res.status(400).json({ error: "Missing query parameters" });
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (session.payment_status !== "paid") {
+      return res.status(400).json({ success: false, message: "Payment not completed" });
+    }
+
+    // Set package limits
+    let packageLimit = 5; // default
+    if (packageType === "Standard") packageLimit = 20;
+    if (packageType === "Premium") packageLimit = 50;
+
+    // Update HR in DB
+    await usersCollection.updateOne(
+      { email: hrEmail},
+      {
+        $set: {
+          package: packageType,
+          packageLimit: packageLimit,
+        },
       }
-    });
+    );
+
+    return res.json({ success: true, packageType, packageLimit });
+  } catch (err) {
+    console.error("Stripe success verification error:", err);
+    res.status(500).json({ error: "Error verifying payment." });
+  }
+});
+
+
+// ✅ Verify payment & update HR package
+// app.get("/api/stripe/success", async (req, res) => {
+//   const { session_id, hrId, packageType } = req.query;
+
+//   if (!session_id || !hrId || !packageType) {
+//     return res.status(400).json({ error: "Missing query parameters" });
+//   }
+
+//   try {
+//     const session = await stripe.checkout.sessions.retrieve(session_id);
+
+//     if (session.payment_status !== "paid") {
+//       return res.status(400).json({ success: false, message: "Payment not completed" });
+//     }
+
+//     // Set package limits
+//     let packageLimit = 5;
+//     if (packageType === "Standard") packageLimit = 20;
+//     if (packageType === "Premium") packageLimit = 50;
+
+//     // Update HR in DB
+//     await usersCollection.updateOne(
+//       { _id: new ObjectId(hrId) },
+//       { $set: { package: packageType, packageLimit } }
+//     );
+
+//     res.json({ success: true, packageType, packageLimit });
+//   } catch (err) {
+//     console.error("Stripe success verification error:", err);
+//     res.status(500).json({ error: "Error verifying payment." });
+//   }
+// });
+
+
+    
+
+    app.get("/api/stripe/success", async (req, res) => {
+  const { session_id, hrId, packageType } = req.query;
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (session.payment_status === "paid") {
+
+      // ⭐ packageLimit ঠিকমতো define করা
+      let packageLimit = 5;
+      if (packageType === "Standard") packageLimit = 20;
+      if (packageType === "Premium") packageLimit = 50;
+
+      await usersCollection.updateOne(
+        { _id: new ObjectId(hrId) },
+        {
+          $set: {
+            package: packageType,
+            packageLimit: packageLimit, // ✅ এখন ঠিক আছে
+          },
+        }
+      );
+
+      return res.json({ success: true, packageType, packageLimit });
+    }
+
+    res.json({ success: false });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ error: "Error verifying payment." });
+  }
+});
+
 
     // Mongo ping
     await client.db("admin").command({ ping: 1 });
