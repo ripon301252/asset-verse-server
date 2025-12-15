@@ -365,34 +365,48 @@ async function run() {
         return res.status(400).json({ message: "Invalid request ID" });
 
       try {
-        // 1️⃣ Update request status
-        const result = await assetRequestCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { status: "returned" } }
-        );
-
-        if (result.modifiedCount === 0)
-          return res
-            .status(404)
-            .json({ success: false, message: "Request not found" });
-
-        // 2️⃣ Optionally increase asset quantity back
+        // 1️⃣ Find request FIRST
         const request = await assetRequestCollection.findOne({
           _id: new ObjectId(id),
         });
-        if (request.assetId) {
+
+        if (!request)
+          return res.status(404).json({
+            success: false,
+            message: "Request not found",
+          });
+
+        if (request.status === "returned") {
+          return res.json({
+            success: false,
+            message: "Asset already returned",
+          });
+        }
+
+        // 2️⃣ Update request status
+        const result = await assetRequestCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "returned", returnedAt: new Date() } }
+        );
+
+        // 3️⃣ Restore asset quantity 🔥
+        if (request.assetId && request.quantity) {
           await assetCollection.updateOne(
             { _id: new ObjectId(request.assetId) },
-            { $inc: { quantity: 1 } }
+            { $inc: { quantity: Number(request.quantity) } }
           );
         }
 
-        res.json({ success: true, modifiedCount: result.modifiedCount });
+        res.json({
+          success: true,
+          modifiedCount: result.modifiedCount,
+        });
       } catch (err) {
         console.error(err);
-        res
-          .status(500)
-          .json({ success: false, message: "Failed to return asset" });
+        res.status(500).json({
+          success: false,
+          message: "Failed to return asset",
+        });
       }
     });
 
@@ -416,6 +430,33 @@ async function run() {
       res.status(201).json(result);
     });
 
+    // app.put("/assets/:id", async (req, res) => {
+    //   const { id } = req.params;
+
+    //   if (!ObjectId.isValid(id)) {
+    //     return res.status(400).json({ success: false, message: "Invalid ID" });
+    //   }
+
+    //   try {
+    //     const result = await assetCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       { $set: req.body }
+    //     );
+
+    //     res.json({
+    //       success: true,
+    //       matchedCount: result.matchedCount,
+    //       modifiedCount: result.modifiedCount,
+    //     });
+    //   } catch (err) {
+    //     console.error(err);
+    //     res.status(500).json({
+    //       success: false,
+    //       message: "Asset update failed",
+    //     });
+    //   }
+    // });
+
     app.put("/assets/:id", async (req, res) => {
       const { id } = req.params;
 
@@ -424,9 +465,16 @@ async function run() {
       }
 
       try {
+        const updateData = { ...req.body };
+
+        // 🔥 quantity force number
+        if (updateData.quantity !== undefined) {
+          updateData.quantity = Number(updateData.quantity);
+        }
+
         const result = await assetCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: req.body }
+          { $set: updateData }
         );
 
         res.json({
