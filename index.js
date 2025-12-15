@@ -577,7 +577,7 @@ async function run() {
     app.put("/asset_requests/:id/approve", async (req, res) => {
       const requestId = req.params.id;
       const { hrEmail, employeeEmail, assetId, quantityNeeded } = req.body;
-      // const quantityNeededNumber = Number(quantityNeeded)
+      const quantityNeededNumber = Number(quantityNeeded);
       try {
         // 1️⃣ HR check
         const hr = await usersCollection.findOne({ email: hrEmail });
@@ -644,21 +644,22 @@ async function run() {
         }
 
         // 6️⃣ Asset quantity check
-        const asset = await assetCollection.findOne({
-          _id: new ObjectId(assetId),
-        });
+        const asset = await assetCollection.updateOne(
+          { _id: new ObjectId(assetId) },
+          { $inc: { quantity: -quantityNeededNumber } }
+        );
 
-        if (!asset || asset.quantity < 1) {
+        if (!asset || asset.quantity < quantityNeededNumber) {
           return res.status(400).json({
             success: false,
-            message: "Asset out of stock",
+            message: "Not enough asset quantity",
           });
         }
 
         // 7️⃣ Reduce asset quantity
         await assetCollection.updateOne(
           { assetId: assetId, email: employeeEmail },
-          { $inc: { quantity: -quantityNeeded } }
+          { $inc: { quantity: -quantityNeededNumber } }
         );
 
         res.json({ success: true });
