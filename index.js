@@ -33,27 +33,69 @@ async function run() {
     // USERS - SINGLE ROUTE (Fixed)
     // =====================================================
 
+    // app.post("/users", async (req, res) => {
+    //   const user = req.body;
+
+    //   // already exists check
+    //   const existingUser = await usersCollection.findOne({ email: user.email });
+    //   if (existingUser) {
+    //     return res.send({ message: "User already exists" });
+    //   }
+
+    //   // ⭐ HR default package logic (IMPORTANT)
+    //   if (user.role === "hr") {
+    //     user.package = "basic";
+    //     user.packageLimit = 5;
+    //     user.createdAt = new Date();
+    //   }
+
+    //   if (user.role === "employee") {
+    //     user.createdAt = new Date();
+    //   }
+
+    //   const result = await usersCollection.insertOne(user);
+    //   res.send(result);
+    // });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
 
-      // already exists check
+      // 🔁 already exists check
       const existingUser = await usersCollection.findOne({ email: user.email });
       if (existingUser) {
         return res.send({ message: "User already exists" });
       }
 
-      // ⭐ HR default package logic (IMPORTANT)
+      // 🔐 FINAL authority: backend decides role
+      let finalRole = "employee";
+
       if (user.role === "hr") {
-        user.package = "basic";
-        user.packageLimit = 5;
-        user.createdAt = new Date();
+        // 🔐 HR secret code verify
+        if (user.hrCode !== process.env.HR_SECRET_CODE) {
+          return res.status(403).send({ message: "Invalid HR secret code" });
+        }
+        finalRole = "hr";
       }
 
-      if (user.role === "employee") {
-        user.createdAt = new Date();
+      // 🧱 Final user object (frontend override possible না)
+      const userInfo = {
+        name: user.name,
+        email: user.email,
+        photoURL: user.photoURL,
+        birthdate: user.birthdate,
+        role: finalRole,
+        createdAt: new Date(),
+      };
+
+      // ⭐ HR default package logic
+      if (finalRole === "hr") {
+        userInfo.companyName = user.companyName;
+        userInfo.companyLogo = user.companyLogo;
+        userInfo.package = "basic";
+        userInfo.packageLimit = 5;
       }
 
-      const result = await usersCollection.insertOne(user);
+      const result = await usersCollection.insertOne(userInfo);
       res.send(result);
     });
 
@@ -835,6 +877,8 @@ async function run() {
           ],
           mode: "payment",
           success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrEmail=${hrEmail}&packageId=${packageId}`,
+         
+         
           cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
         });
 
@@ -846,7 +890,15 @@ async function run() {
     });
 
     app.get("/api/stripe/success", async (req, res) => {
+      //  res.set("Cache-Control", "no-store"); // 🔥 add this
+         res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
       const { session_id, packageId, hrEmail } = req.query;
+
+      if (!packageId || !hrEmail) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Missing parameters" });
+      }
 
       try {
         const session = await stripe.checkout.sessions.retrieve(session_id);
@@ -855,11 +907,27 @@ async function run() {
           return res.json({ success: false });
         }
 
-        const pkg = await db.collection("packages").findOne({
-          _id: new ObjectId(packageId),
-        });
+        let pkg;
+        try {
+          pkg = await db.collection("packages").findOne({
+            _id: new ObjectId(packageId),
+          });
+        } catch (e) {
+          console.error("Invalid ObjectId:", e);
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid packageId" });
+        }
 
-        await usersCollection.updateOne(
+        if (!pkg) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Package not found" });
+        }
+
+         console.log("RETURNING PACKAGE:", pkg?.name);
+
+        await db.collection("users").updateOne(
           { email: hrEmail },
           {
             $set: {
@@ -869,10 +937,27 @@ async function run() {
           }
         );
 
-        res.json({ success: true });
+        res.json({ success: true, packageName: pkg.name });
+        console.log("RETURNING PACKAGE:", pkg?.name);
       } catch (err) {
         console.error(err);
-        res.status(500).json({ error: "Payment verification failed" });
+        res
+          .status(500)
+          .json({ success: false, error: "Payment verification failed" });
+      }
+    });
+
+    app.get("/users/:email/role", async (req, res) => {
+      const { email } = req.params;
+      try {
+        const user = await db.collection("users").findOne({ email });
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        res.json({ role: user.role });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
       }
     });
 
@@ -887,6 +972,20 @@ async function run() {
       } catch (err) {
         console.error("Failed to fetch packages:", err);
         res.status(500).json({ message: "Failed to fetch packages" });
+      }
+    });
+
+    app.get("/api/packages/:id", async (req, res) => {
+      const { id } = req.params;
+      try {
+        const pkg = await db
+          .collection("packages")
+          .findOne({ _id: new ObjectId(id) });
+        if (!pkg) return res.status(404).json({ message: "Package not found" });
+        res.json(pkg); // must include name
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch package" });
       }
     });
 
