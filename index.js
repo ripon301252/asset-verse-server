@@ -33,30 +33,6 @@ async function run() {
     // USERS - SINGLE ROUTE (Fixed)
     // =====================================================
 
-    // app.post("/users", async (req, res) => {
-    //   const user = req.body;
-
-    //   // already exists check
-    //   const existingUser = await usersCollection.findOne({ email: user.email });
-    //   if (existingUser) {
-    //     return res.send({ message: "User already exists" });
-    //   }
-
-    //   // ⭐ HR default package logic (IMPORTANT)
-    //   if (user.role === "hr") {
-    //     user.package = "basic";
-    //     user.packageLimit = 5;
-    //     user.createdAt = new Date();
-    //   }
-
-    //   if (user.role === "employee") {
-    //     user.createdAt = new Date();
-    //   }
-
-    //   const result = await usersCollection.insertOne(user);
-    //   res.send(result);
-    // });
-
     app.post("/users", async (req, res) => {
       const user = req.body;
 
@@ -113,11 +89,6 @@ async function run() {
     });
 
     // Get all users
-    // app.get("/users", async (req, res) => {
-    //   const users = await usersCollection.find().toArray();
-    //   res.json(users);
-    // });
-
     app.get("/users", async (req, res) => {
       const { page = 1, limit = 10, search = "" } = req.query;
       const skip = (Number(page) - 1) * Number(limit);
@@ -145,33 +116,7 @@ async function run() {
       }
     });
 
-    // app.delete("/affiliations/:employeeId", async (req, res) => {
-    //   const { employeeId } = req.params;
-    //   const { companyName } = req.body; // client থেকে পাঠাতে হবে
-    //   if (!companyName)
-    //     return res.status(400).json({ message: "Company required" });
-
-    //   try {
-    //     const result = await usersCollection.updateOne(
-    //       { _id: new ObjectId(employeeId) },
-    //       {
-    //         $pull: {
-    //           affiliations: {
-    //             companyName: { $regex: `^${companyName}$`, $options: "i" },
-    //           },
-    //         },
-    //       }
-    //     );
-
-    //     res.json({ success: result.modifiedCount > 0 });
-    //   } catch (err) {
-    //     console.error(err);
-    //     res.status(500).json({ message: "Failed to remove affiliation" });
-    //   }
-    // });
-
-    // GET single user
-
+    
     app.delete("/affiliations/:affiliationId", async (req, res) => {
       const { affiliationId } = req.params;
       const hrEmail = req.headers.hremail;
@@ -203,6 +148,7 @@ async function run() {
       }
     });
 
+    // GET single user
     app.get("/users/:id", async (req, res) => {
       const id = req.params.id;
       if (!ObjectId.isValid(id)) {
@@ -253,9 +199,6 @@ async function run() {
       }
     });
 
-    // =====================================================
-    // EMPLOYEES
-    // =====================================================
 
     // =====================================================
     // HR EMPLOYEE LIST
@@ -346,31 +289,6 @@ async function run() {
     // =====================================================
     // ASSETS
     // =====================================================
-    // app.get("/assets", async (req, res) => {
-    //   const { page = 1, limit = 10, search = "", type } = req.query;
-
-    //   const skip = (page - 1) * limit;
-
-    //   const query = {};
-
-    //   if (search) query.name = { $regex: search, $options: "i" };
-    //   if (type) query.type = type;
-
-    //   try {
-    //     const total = await assetCollection.countDocuments(query);
-    //     const assets = await assetCollection
-    //       .find(query)
-    //       .skip(Number(skip))
-    //       .limit(Number(limit))
-    //       .toArray();
-
-    //     res.json({ assets, total });
-    //   } catch (err) {
-    //     console.error(err);
-    //     res.status(500).json({ message: "Failed to fetch assets" });
-    //   }
-    // });
-
     app.get("/assets", async (req, res) => {
       const { page = 1, limit = 10, search = "", type } = req.query;
       const skip = (Number(page) - 1) * Number(limit);
@@ -472,33 +390,7 @@ async function run() {
       res.status(201).json(result);
     });
 
-    // app.put("/assets/:id", async (req, res) => {
-    //   const { id } = req.params;
-
-    //   if (!ObjectId.isValid(id)) {
-    //     return res.status(400).json({ success: false, message: "Invalid ID" });
-    //   }
-
-    //   try {
-    //     const result = await assetCollection.updateOne(
-    //       { _id: new ObjectId(id) },
-    //       { $set: req.body }
-    //     );
-
-    //     res.json({
-    //       success: true,
-    //       matchedCount: result.matchedCount,
-    //       modifiedCount: result.modifiedCount,
-    //     });
-    //   } catch (err) {
-    //     console.error(err);
-    //     res.status(500).json({
-    //       success: false,
-    //       message: "Asset update failed",
-    //     });
-    //   }
-    // });
-
+    
     app.put("/assets/:id", async (req, res) => {
       const { id } = req.params;
 
@@ -590,27 +482,6 @@ async function run() {
     // =====================================================
     // ASSET REQUESTS
     // =====================================================
-    // app.get("/asset_requests", async (req, res) => {
-    //   const { email, page = 1, limit = 10 } = req.query;
-    //   const query = email ? { email } : {};
-    //   const skip = (page - 1) * limit;
-
-    //   try {
-    //     const total = await assetRequestCollection.countDocuments(query);
-    //     const requests = await assetRequestCollection
-    //       .find(query)
-    //       .sort({ createdAt: -1 })
-    //       .skip(Number(skip))
-    //       .limit(Number(limit))
-    //       .toArray();
-
-    //     res.json({ requests, total });
-    //   } catch (err) {
-    //     console.error(err);
-    //     res.status(500).json({ message: "Failed to fetch asset requests" });
-    //   }
-    // });
-
     app.get("/asset_requests", async (req, res) => {
       const { email, page = 1, limit = 10 } = req.query;
       const query = email ? { email } : {};
@@ -805,35 +676,7 @@ async function run() {
       }
     });
 
-    //  strip Create Checkout Session
-    // app.post("/api/stripe/create-checkout-session", async (req, res) => {
-    //   try {
-    //     const { hrEmail, packageType, amount } = req.body;
-    //     console.log(hrEmail);
-    //     const session = await stripe.checkout.sessions.create({
-    //       payment_method_types: ["card"],
-    //       line_items: [
-    //         {
-    //           price_data: {
-    //             currency: "usd",
-    //             product_data: { name: `AssetVerse ${packageType} Package` },
-    //             unit_amount: amount * 100,
-    //           },
-    //           quantity: 1,
-    //         },
-    //       ],
-    //       mode: "payment",
-    //       success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrEmail=${hrEmail}&packageType=${packageType}`,
-    //       cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
-    //     });
-
-    //     res.json({ url: session.url });
-    //   } catch (err) {
-    //     console.log(err);
-    //     res.status(500).json({ error: "Stripe session creation failed" });
-    //   }
-    // });
-
+    // strip Create Checkout Session
     app.post("/api/stripe/create-checkout-session", async (req, res) => {
       try {
         const { hrEmail, packageId } = req.body;
@@ -877,8 +720,7 @@ async function run() {
           ],
           mode: "payment",
           success_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-success?session_id={CHECKOUT_SESSION_ID}&hrEmail=${hrEmail}&packageId=${packageId}`,
-         
-         
+
           cancel_url: `${process.env.CLIENT_URL}/packageUpgrade/upgrade-cancel`,
         });
 
@@ -891,7 +733,7 @@ async function run() {
 
     app.get("/api/stripe/success", async (req, res) => {
       //  res.set("Cache-Control", "no-store"); // 🔥 add this
-         res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
       const { session_id, packageId, hrEmail } = req.query;
 
       if (!packageId || !hrEmail) {
@@ -925,7 +767,7 @@ async function run() {
             .json({ success: false, error: "Package not found" });
         }
 
-         console.log("RETURNING PACKAGE:", pkg?.name);
+        console.log("RETURNING PACKAGE:", pkg?.name);
 
         await db.collection("users").updateOne(
           { email: hrEmail },
