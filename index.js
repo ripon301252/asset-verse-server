@@ -27,11 +27,40 @@ async function run() {
       "employeeAffiliations"
     );
 
-    console.log("MongoDB connected!");
+    // console.log("MongoDB connected!");
 
     // =====================================================
     // USERS - SINGLE ROUTE (Fixed)
     // =====================================================
+
+    // Get all users
+    app.get("/users", async (req, res) => {
+      const { page = 1, limit = 10, search = "" } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const query = {};
+      if (search) query.name = { $regex: search, $options: "i" };
+
+      try {
+        const total = await usersCollection.countDocuments(query);
+        const users = await usersCollection
+          .find(query)
+          .skip(skip)
+          .limit(Number(limit))
+          .toArray();
+
+        res.json({
+          users,
+          total,
+          page: Number(page),
+          totalPages: Math.ceil(total / Number(limit)),
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch users" });
+      }
+    });
+
 
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -74,7 +103,8 @@ async function run() {
       const result = await usersCollection.insertOne(userInfo);
       res.send(result);
     });
-
+    
+    
     // Get role
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
@@ -88,33 +118,6 @@ async function run() {
       }
     });
 
-    // Get all users
-    app.get("/users", async (req, res) => {
-      const { page = 1, limit = 10, search = "" } = req.query;
-      const skip = (Number(page) - 1) * Number(limit);
-
-      const query = {};
-      if (search) query.name = { $regex: search, $options: "i" };
-
-      try {
-        const total = await usersCollection.countDocuments(query);
-        const users = await usersCollection
-          .find(query)
-          .skip(skip)
-          .limit(Number(limit))
-          .toArray();
-
-        res.json({
-          users,
-          total,
-          page: Number(page),
-          totalPages: Math.ceil(total / Number(limit)),
-        });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Failed to fetch users" });
-      }
-    });
 
     app.delete("/affiliations/:affiliationId", async (req, res) => {
       const { affiliationId } = req.params;
