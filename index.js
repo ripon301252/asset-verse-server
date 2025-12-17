@@ -42,18 +42,18 @@ async function run() {
         return res.send({ message: "User already exists" });
       }
 
-      // 🔐 FINAL authority: backend decides role
+      // FINAL authority: backend decides role
       let finalRole = "employee";
 
       if (user.role === "hr") {
-        // 🔐 HR secret code verify
+        // HR secret code verify
         if (user.hrCode !== process.env.HR_SECRET_CODE) {
           return res.status(403).send({ message: "Invalid HR secret code" });
         }
         finalRole = "hr";
       }
 
-      // 🧱 Final user object (frontend override possible না)
+      // Final user object (frontend override possible না)
       const userInfo = {
         name: user.name,
         email: user.email,
@@ -116,7 +116,6 @@ async function run() {
       }
     });
 
-    
     app.delete("/affiliations/:affiliationId", async (req, res) => {
       const { affiliationId } = req.params;
       const hrEmail = req.headers.hremail;
@@ -198,7 +197,6 @@ async function run() {
         res.status(500).json({ success: false, message: "Update failed" });
       }
     });
-
 
     // =====================================================
     // HR EMPLOYEE LIST
@@ -390,7 +388,6 @@ async function run() {
       res.status(201).json(result);
     });
 
-    
     app.put("/assets/:id", async (req, res) => {
       const { id } = req.params;
 
@@ -565,15 +562,14 @@ async function run() {
         // 3️⃣ Request approve
         const approveResult = await assetRequestCollection.updateOne(
           { _id: new ObjectId(requestId), status: "pending" },
-          { $set: { status: "approved", approvedAt: new Date() } }
+          {
+            $set: {
+              status: "approved",
+              approvalDate: new Date(),
+            },
+          }
         );
 
-        // if (approveResult.modifiedCount === 0) {
-        //   return res.status(400).json({
-        //     success: false,
-        //     message: "Request already approved or not found",
-        //   });
-        // }
         console.log(approveResult);
 
         // 4️⃣ Employee check
