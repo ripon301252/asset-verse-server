@@ -17,7 +17,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const db = client.db("asset_verse_db");
     const assetCollection = db.collection("asset_list");
@@ -807,7 +807,7 @@ async function run() {
     // ==========================
     app.get("/api/packages", async (req, res) => {
       try {
-        const db = client.db("asset_verse_db");
+        
         const packages = await db.collection("packages").find({}).toArray();
         res.json(packages);
       } catch (err) {
@@ -831,8 +831,8 @@ async function run() {
     });
 
     // Mongo ping
-    await client.db("admin").command({ ping: 1 });
-    console.log("Ping OK");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Ping OK");
   } finally {
   }
 }
